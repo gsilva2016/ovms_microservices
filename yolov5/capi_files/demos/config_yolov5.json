@@ -5,6 +5,7 @@
                 "base_path": "FP16-INT8",
 		"nireq": 1,
 		"batch_size":"1",
+		"plugin_config": {"PERFORMANCE_HINT": "LATENCY"},
         	"target_device": "CPU"}}
     ]
 }
