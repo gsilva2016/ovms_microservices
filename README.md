@@ -28,12 +28,17 @@ Phase 2
 
 ## Make code changes and run demo
 cd yolov5
+
 make clean
+
 make from_docker
+
 make build_image
+
 
 ## Run demo only
 docker run -it --entrypoint /bin/bash --privileged openvino/model_server-capi:latest 
+
 make -f MakefileCapi cpp
 
 
