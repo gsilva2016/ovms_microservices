@@ -12,13 +12,13 @@ Ref OVMS C-API Limitations: https://docs.openvino.ai/latest/ovms_docs_c_api.html
 
 Phase 1
 - Add instrumentation to measure total time taken per frame (latency) and calc overall FPS througput
-- Compare this yolov5s workload througput vs. dlstreamer workload in sandbox
-  - If perf is not near OV native perf. then investigation is needed to resolve
+- Compare this yolov5s workload througput vs. dlstreamer workload in sandbox - DONE for inference only.
+  - If perf is not near OV native perf. then investigation is needed to resolve - DONE. No major differences.
 - Create post-processing library and demonstrate bounding boxes around objects in the video
 
 Phase 2
-- Create MLOps demo
-  - Push Yolov5 version 2 model and show increased accuracy with no downtime
+- Create MLOps demo - DONE
+  - Push Yolov5 version 2 model and show increased accuracy (slower performance) and backout with no downtime - DONE
 
 
 
