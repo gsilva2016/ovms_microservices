@@ -35,7 +35,7 @@
 #include "ovms.h"  // NOLINT
 
 const char* MODEL_NAME = "yolov5s";
-const uint64_t MODEL_VERSION = 1;
+const uint64_t MODEL_VERSION = 0;
 const char* INPUT_NAME = "images";
 constexpr size_t DIM_COUNT = 4;
 constexpr size_t SHAPE[DIM_COUNT] = {1, 3, 416, 416};
@@ -210,6 +210,8 @@ int main(int argc, char** argv) {
     for (size_t i = 0; i < shape[1]; ++i) {
         ss << *(reinterpret_cast<const float*>(voutputData) + i) << " ";
     }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    // todo comment below to run against full video or pass in time interval and remove instead
     break;
     } // end while get frames
 
