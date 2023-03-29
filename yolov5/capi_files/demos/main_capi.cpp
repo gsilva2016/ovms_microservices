@@ -40,9 +40,11 @@
 
 const char* MODEL_NAME = "yolov5s";
 const uint64_t MODEL_VERSION = 0;
-const char* INPUT_NAME = "images";
 constexpr size_t DIM_COUNT = 4;
-constexpr size_t SHAPE[DIM_COUNT] = {1, 3, 416, 416};
+// YOLOV5 - 1x3x416x416 NCHW  
+// TODO: Optimize to to convert model to NHWC. For now do the conversion.
+const char* INPUT_NAME = "images";
+constexpr size_t SHAPE[DIM_COUNT] = {1, 416, 416, 3};
 
 // OpenCV video capture
 cv::VideoCapture vidcap;
@@ -54,16 +56,8 @@ bool canRead;
 
 bool openVideo(const std::string& videoFileName)
 {
-	//auto startTime = std::chrono::steady_clock::now();
-
-        //std::ifstream file(videoFileName.c_str());
-        //if (!file.good()) {
-	//	printf("Can not find the video file\n");
-	//}
-
 	if (!vidcap.open(videoFileName, cv::CAP_ANY)) {
 		printf("Unable to open the video file %s\n", videoFileName.c_str());
-		//return false;
 	}
 
 	return vidcap.isOpened();
@@ -72,7 +66,6 @@ bool openVideo(const std::string& videoFileName)
 bool getVideoFrame()
 {
 	int ret = vidcap.read(img);
-        //printf("Return read val: %d\n", ret);
 	return ret;
 }
 
@@ -125,7 +118,7 @@ typedef struct DetectedResult {
 	float height; 
 	float confidence;
 	int classId;
-	int classText;
+	const char *classText;
 } DetectedResult;
 
 std::vector<DetectedResult> _detectedResults;
@@ -138,7 +131,7 @@ static inline float linear(float x) {
     return x;
 }
 
-const std::string labels[] = {
+const std::string labels[80] = {
                 "person",
                 "bicycle",
                 "car",
@@ -221,6 +214,15 @@ const std::string labels[] = {
                 "toothbrush"
 };
 
+const char * getClassLabelText(int classIndex)
+{
+        if (classIndex > 80)
+                return "";
+
+        return labels[classIndex].c_str();
+}
+
+
 int calculateEntryIndex(int totalCells, int lcoords, size_t lclasses, int location, int entry) {
     int n = location / totalCells;
     int loc = location % totalCells;
@@ -231,30 +233,21 @@ int calculateEntryIndex(int totalCells, int lcoords, size_t lclasses, int locati
 void postprocess(const uint64_t* output_shape, const void* voutputData, const size_t *input_shape, const size_t bytesize, const uint32_t dimCount, std::vector<DetectedResult> &detectedResults)
 {
         if (!voutputData || !output_shape) {
-                printf("DEBUG: Nothing to do.\n");
+                printf("*************DEBUG: Nothing to do.\n");
                 return;
         }
 
 	const int regionCoordsCount  = dimCount;
-	const int sideH = output_shape[2];
-	const int sideW = output_shape[3];
+	const int sideH = output_shape[2]; // NCHW
+	const int sideW = output_shape[3]; // NCHW
 	const int regionNum = 3;
-	const int scaleH = input_shape[2];
-	const int scaleW = input_shape[3];
+	const int scaleH = input_shape[1]; // NHWC
+	const int scaleW = input_shape[2]; // NHWC
 
 	auto entriesNum = sideW * sideH;
 	const float* outData = reinterpret_cast<const float*>(voutputData);
 
-	/*
-	float f = -0.008931f;
-
-	for (int i = 0; i < 55555; i++)
-		if (outData[i] == f)
-			printf("outdata: %i %f \n", i, outData[i]);
-	return;
-*/
-
-	// Yolov5 uses sigmoid similar to v4 or linear?
+	// Yolov5 uses sigmoid similar to v4 or linear
     	auto postprocessRawData = sigmoid;
 
 	// --------------------------- Parsing YOLO Region output -------------------------------------
@@ -269,24 +262,12 @@ void postprocess(const uint64_t* output_shape, const void* voutputData, const si
             float scale = postprocessRawData(outData[obj_index]);
 
 
-//	    printf("Entries %d regionCoordsCount %d classes %di obj_index %d box_index %d scale %f \n", sideW*sideH, regionCoordsCount, classes, obj_index, box_index, scale);
-
             //--- Preliminary check for confidence threshold conformance
 	    int original_im_w = 1920;
 	    int original_im_h = 1080;
-	    /*
-	    if (744 == obj_index || 15109 == obj_index || obj_index == 750) {
-		     printf("sideH %d Obj_index %d outdata %f scale %f calc entriesNum %d regionCoordsCount %d, classes %d i %d n %d\n", sideH, obj_index, outData[obj_index],scale, entriesNum, regionCoordsCount, classes+1, i, n);
-
-		     printf("outdata manip: %f %f\n", std::exp(outData[obj_index]), std::exp(outData[obj_index]*-1.0f));
-	    }
-	    */
 
             if (scale >= confidence_threshold) 
 	    {
-		printf("------------>>>>>sideH %d Obj_index %d outdata %f scale %f calc entriesNum %d regionCoordsCount %d, classes %d i %d n %d-------------<<<\n", sideH, obj_index, outData[obj_index],scale, entriesNum, regionCoordsCount, classes+1, i, n);
-
-		printf("Scale: %f threshold %f\n", scale, confidence_threshold);
                 //--- Calculating scaled region's coordinates
                 float x, y;
                 x = static_cast<float>((col + postprocessRawData(outData[box_index + 0 * entriesNum])) / sideW * original_im_w);
@@ -303,36 +284,19 @@ void postprocess(const uint64_t* output_shape, const void* voutputData, const si
                 for (size_t j = 0; j < classes; ++j) {
                     int class_index = calculateEntryIndex(entriesNum, regionCoordsCount, classes + 1, n * entriesNum + i, regionCoordsCount + 1 + j);
                     float prob = scale * postprocessRawData(outData[class_index]);
-		    printf("-------------->prob %f classId %d \n", prob, class_index);
 
                     //--- Checking confidence threshold conformance and adding region to the list
                     if (prob >= confidence_threshold) {
                         obj.confidence = prob;
                         obj.classId = j;
-                        //obj.classText = getLabelName(obj.labelID);
-			std::cout << "( " << obj.x << " , " << obj.y << " " << obj.width << ", " << obj.height << ") Class: " << class_index << " Conf: " << prob << std::endl;
-                        //detectedResults.push_back(obj);
+                        obj.classText = getClassLabelText(j);
+                        detectedResults.push_back(obj);
                     }
                 }
             } // else
 	 } // for
 	} // for
     
-
-/*
-        for (size_t i = 0; i < 65155; ++i) {
-		float floatX = *(reinterpret_cast<const float*>(voutputData) + i);
-		float floatC1 = 1.880043f;
-		float floatC2 = 1.984608;
-
-		//if (floatX == floatC1 || floatX == floatC2)
-		{
-			printf("floatX %f index found %d\n", floatX, i);
-		}
-		//std::cout << i << " : " << *(reinterpret_cast<const float*>(voutputData) + i) << std::endl;
-		//std::cout << "Box " << i << " : (" << x1 << ", " << y1 << ", " << x2 << ", " << y2 << " ). Prob: " << prob << " classIdx: " << classIdx << std::endl;
-        }
-	*/
         return;
 }
 // end of Parse Yolov5
@@ -373,6 +337,13 @@ static void installSignalHandlers() {
     sigaction(SIGILL, &sigIllHandler, NULL);
 }
 
+void printInferenceResults(std::vector<DetectedResult> &results)
+{
+	for (auto & obj : results) {
+	  std::cout << "Rect: [ " << obj.x << " , " << obj.y << " " << obj.width << ", " << obj.height << "] Class: " << obj.classText << "(" << obj.classId << ") Conf: " << obj.confidence << std::endl;
+	}
+}
+
 int main(int argc, char** argv) {
 
     // Open video
@@ -380,12 +351,6 @@ int main(int argc, char** argv) {
 	    std::cout << "Nothing to do." << std::endl;
 	    return 0;
     }
-    /*
-    if (!openVideo("sample-bottle.jpg")) {
-            std::cout << "Nothing to do." << std::endl;
-            return 0;
-    }
-    */
 
     installSignalHandlers();
 
@@ -431,41 +396,44 @@ int main(int argc, char** argv) {
     OVMS_InferenceRequestAddInput(request, INPUT_NAME, OVMS_DATATYPE_FP32, SHAPE, DIM_COUNT);
 
     while (getVideoFrame()) {
-	    auto startTime = std::chrono::high_resolution_clock::now();
+    auto startTime = std::chrono::high_resolution_clock::now();
 
     cv::Mat newImage;
+    cv::Mat floatImage;
     cv::Size networkSize(416, 416);
 
     // Resize to input network size
     cv::resize(img, newImage, networkSize, 0,0, cv::INTER_LINEAR);
 
-    // Color convert YUV/NV12 to BGR - not needed
-    //cv::cvtColor(newImage, newImage, cv::COLOR_YUV2RGB_NV12);
+    // Convert to needed FP32 input format
+    newImage.convertTo(floatImage, CV_32F);
 
-    //cv::imwrite("/savedir/test.jpg", newImage);
+    const int DATA_SIZE = floatImage.step[0] * floatImage.rows;
 
-    // normalize
-    // TODO?
-    
-    // change shape to NCHW needed?
-    //cv::transpose(newImage, newImage, 2,0,1).reshape(1,3,416,416);
+    OVMS_InferenceRequestInputSetData(request, INPUT_NAME, reinterpret_cast<void*>(floatImage.data), DATA_SIZE , OVMS_BUFFERTYPE_CPU, 0);    
+    std::cout << "Perform inference" << std::endl;
 
-    OVMS_InferenceRequestInputSetData(request, INPUT_NAME, reinterpret_cast<void*>(newImage.data),sizeof(int) * 3 * 416 * 416 , OVMS_BUFFERTYPE_CPU, 0);
 
     // run sync request
     OVMS_InferenceResponse* response = nullptr;
     res = OVMS_Inference(srv, request, &response);
     if (res != nullptr) {
+	std::cout << "OVMS_Inference failed " << std::endl;
         uint32_t code = 0;
         const char* details = 0;
         OVMS_StatusGetCode(res, &code);
         OVMS_StatusGetDetails(res, &details);
         std::cout << "Error occured during inference. Code:" << code
                   << ", details:" << details << std::endl;
+    } else {
+	std::cout << "Inference completed " << std::endl;
     }
+
     // read output
     uint32_t outputCount = 0;
     OVMS_InferenceResponseGetOutputCount(response, &outputCount);
+    //std::cout << "Ouputs returned: " << outputCount << std::endl;
+
     const void* voutputData3;
     const void* voutputData2;
     const void* voutputData1;
@@ -492,8 +460,9 @@ int main(int argc, char** argv) {
     const char* outputName2{nullptr};
     const char* outputName3{nullptr};
 
+    std::cout << "Get response 1 " << std::endl;
     OVMS_InferenceResponseGetOutput(response, outputId, &outputName1, &datatype1, &shape1, &dimCount1, &voutputData1, &bytesize1, &bufferType1, &deviceId1);
-    //std::cout << "------------> " << outputName1  << " " << dimCount1 << " " << shape1[0] << " " << shape1[1] << " " << shape1[2] << " " << shape1[3] << " " << bytesize1 << " " << outputCount << std::endl;
+    std::cout << "------------> " << outputName1  << " " << dimCount1 << " " << shape1[0] << " " << shape1[1] << " " << shape1[2] << " " << shape1[3] << " " << bytesize1 << " " << outputCount << std::endl;
 
     //OVMS_InferenceResponseGetOutput(response, outputId - 1, &outputName2, &datatype2, &shape2, &dimCount2, &voutputData2, &bytesize2, &bufferType2, &deviceId2);
     //std::cout << "------------> " << outputName2  << " " << dimCount2 << " " << shape2[0] << " " << shape2[1] << " " << shape2[2] << " " << shape2[3] << " " << bytesize2 << " " << outputCount << std::endl;
@@ -501,16 +470,10 @@ int main(int argc, char** argv) {
     //OVMS_InferenceResponseGetOutput(response, outputId-2, &outputName3, &datatype3, &shape3, &dimCount3, &voutputData3, &bytesize3, &bufferType3, &deviceId3);
     //std::cout << "------------> " << outputName3  << " " << dimCount3 << " " << shape3[0] << " " << shape3[1] << " " << shape3[2] << " " << shape3[3] << " " << bytesize3 << " " << outputCount << std::endl;
 
-    //std::cout << "-------------Array sizes: " << sizeof(voutputData1)/sizeof(voutputData1[0]) << " " sizeof(voutputData2)/sizeof(voutputData2[0]) << " " << sizeof(voutputData3)/sizeof(voutputData3[0]) << std::endl;
-
-    //std::cout << "-----------Array element size: " << sizeof(voutputData1) << " " << sizeof(voutputData2) << " " << sizeof(voutputData3) << std::endl;
-    //std::cout << "-----------Devices: " << deviceId1 << " " << deviceId2  << " " << deviceId3 << std::endl;
     std::vector<DetectedResult> detectedResults;
     postprocess(shape1, voutputData1, SHAPE, bytesize1, dimCount1, detectedResults);
-    //_detectedResults.clear();
-    //calculateBoundingBox(shape1, voutputData1, bytesize1, dimCount1);
-    //calculateBoundingBox(shape2, voutputData2);
-    //calculateBoundingBox(shape3, voutputData3);
+    printInferenceResults(detectedResults);
+    detectedResults.clear();
 
     /*
     std::stringstream ss;
@@ -527,20 +490,10 @@ int main(int argc, char** argv) {
     // todo comment below to run against full video or pass in time interval and remove instead
     //break;
 
-    	auto endTime = std::chrono::high_resolution_clock::now();
-	std::cout << "Pipeline Latency (ms): " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count() << std::endl;
+    auto endTime = std::chrono::high_resolution_clock::now();
+    std::cout << "Pipeline Latency (ms): " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count() << std::endl;
+
     } // end while get frames
-
-    //std::vector<float> expectedOutput;
-    //std::transform(data.begin(), data.end(), std::back_inserter(expectedOutput),
-    //    [](const float& s) -> float {
-    //        return s + 1;
-    //    });
-
-    //if (std::memcmp(voutputData, expectedOutput.data(), expectedOutput.size() * sizeof(float)) != 0) {
-    //    std::cout << "Incorrect result of inference" << std::endl;
-    //}
-    //std::cout << ss.str() << std::endl;
 
 
     // comment line below to have app running similarly to OVMS

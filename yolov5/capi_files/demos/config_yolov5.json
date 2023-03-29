@@ -3,11 +3,12 @@
         {"config": {
                 "name": "yolov5s",
                 "base_path": "FP16-INT8",
+		"layout": "NHWC:NCHW",
 		"nireq": 1,
 		"batch_size":"1",
 		"plugin_config": {"PERFORMANCE_HINT": "LATENCY"},
         	"target_device": "CPU"},
-	 "latest": { "num_versions": 2 }
+	 	"latest": { "num_versions": 2 }
 	}
     ]
 }
