@@ -22,6 +22,7 @@
 #include <sstream>
 #include <thread>
 #include <vector>
+#include <iomanip>
 
 #include <signal.h>
 #include <stdio.h>
@@ -430,6 +431,8 @@ void saveInferenceResultsAsVideo(cv::Mat &presenter, std::vector<DetectedResult>
 
 int main(int argc, char** argv) {
 
+    std::cout << std::setprecision(2) << std::fixed;
+
     std::string videoStream = "coca-cola-4465029.mp4";
     if (argc > 1)
     {
@@ -521,7 +524,7 @@ int main(int argc, char** argv) {
         std::cout << "Error occured during inference. Code:" << code
                   << ", details:" << details << std::endl;
     } else {
-	std::cout << "Inference completed " << std::endl;
+	//std::cout << "Inference completed " << std::endl;
     }
 
     // read output
@@ -555,9 +558,8 @@ int main(int argc, char** argv) {
     const char* outputName2{nullptr};
     const char* outputName3{nullptr};
 
-    std::cout << "Get response 1 " << std::endl;
     OVMS_InferenceResponseGetOutput(response, outputId, &outputName1, &datatype1, &shape1, &dimCount1, &voutputData1, &bytesize1, &bufferType1, &deviceId1);
-    std::cout << "------------> " << outputName1  << " " << dimCount1 << " " << shape1[0] << " " << shape1[1] << " " << shape1[2] << " " << shape1[3] << " " << bytesize1 << " " << outputCount << std::endl;
+    //std::cout << "------------> " << outputName1  << " " << dimCount1 << " " << shape1[0] << " " << shape1[1] << " " << shape1[2] << " " << shape1[3] << " " << bytesize1 << " " << outputCount << std::endl;
 
     //OVMS_InferenceResponseGetOutput(response, outputId - 1, &outputName2, &datatype2, &shape2, &dimCount2, &voutputData2, &bytesize2, &bufferType2, &deviceId2);
     //std::cout << "------------> " << outputName2  << " " << dimCount2 << " " << shape2[0] << " " << shape2[1] << " " << shape2[2] << " " << shape2[3] << " " << bytesize2 << " " << outputCount << std::endl;
@@ -593,8 +595,7 @@ int main(int argc, char** argv) {
     unsigned long elapsedTotalTime = ((std::chrono::duration_cast<std::chrono::seconds>(endTime-initTime)).count());
     if (elapsedTotalTime > 0)
     {
-      std::cout << "DEBUG: " << numberOfFrames << " " << ((std::chrono::duration_cast<std::chrono::seconds>(endTime-initTime)).count()) << std::endl;
-      int fps = numberOfFrames/((std::chrono::duration_cast<std::chrono::seconds>(endTime-initTime)).count()); // convert to seconds
+      float fps = (float)numberOfFrames/(float)((std::chrono::duration_cast<std::chrono::milliseconds>(endTime-initTime)).count()/1000); // convert to seconds
       std::cout << "FPS: " << fps << std::endl;
     }
     //break;
