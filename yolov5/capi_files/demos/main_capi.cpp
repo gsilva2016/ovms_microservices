@@ -66,6 +66,12 @@ bool openVideo(const std::string& videoFileName)
 bool getVideoFrame()
 {
 	int ret = vidcap.read(img);
+	if (!ret)
+        {
+          //retry one time
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+          ret = vidcap.read(img);
+        }
 	return ret;
 }
 
@@ -75,6 +81,7 @@ bool getVideoFrame()
 //
 const size_t batch_size = 1;
 float confidence_threshold = .5;
+float boxiou_threshold = .5;
 float iou_threshold = 0.4;
 const int classes =  80;
 const float anchors[] = { 
@@ -229,6 +236,53 @@ int calculateEntryIndex(int totalCells, int lcoords, size_t lclasses, int locati
     return (n * (lcoords + lclasses) + entry) * totalCells + loc;
 }
 
+double intersectionOverUnion(const DetectedResult& o1, const DetectedResult& o2) {
+    double overlappingWidth = std::fmin(o1.x + o1.width, o2.x + o2.width) - std::fmax(o1.x, o2.x);
+    double overlappingHeight = std::fmin(o1.y + o1.height, o2.y + o2.height) - std::fmax(o1.y, o2.y);
+    double intersectionArea =
+        (overlappingWidth < 0 || overlappingHeight < 0) ? 0 : overlappingHeight * overlappingWidth;
+    double unionArea = o1.width * o1.height + o2.width * o2.height - intersectionArea;
+    return intersectionArea / unionArea;
+}
+
+void postprocess(std::vector<DetectedResult> &detectedResults, std::vector<DetectedResult> &outDetectedResults)	
+{
+  const bool useAdvancedPostprocessing = true;
+    	  
+  if (useAdvancedPostprocessing) {
+        // Advanced postprocessing
+        // Checking IOU threshold conformance
+        // For every i-th object we're finding all objects it intersects with, and comparing confidence
+        // If i-th object has greater confidence than all others, we include it into result
+        for (const auto& obj1 : detectedResults) {
+            bool isGoodResult = true;
+            for (const auto& obj2 : detectedResults) {
+                if (obj1.classId == obj2.classId && obj1.confidence < obj2.confidence &&
+                    intersectionOverUnion(obj1, obj2) >= boxiou_threshold) {  // if obj1 is the same as obj2, condition
+                                                                             // expression will evaluate to false anyway
+                    isGoodResult = false;
+                    break;
+                }
+            }
+            if (isGoodResult) {
+                outDetectedResults.push_back(obj1);
+            }
+        }
+  } else {
+        // Classic postprocessing
+        std::sort(detectedResults.begin(), detectedResults.end(), [](const DetectedResult& x, const DetectedResult& y) {
+            return x.confidence > y.confidence;
+        });
+        for (size_t i = 0; i < detectedResults.size(); ++i) {
+            if (detectedResults[i].confidence == 0)
+                continue;
+            for (size_t j = i + 1; j < detectedResults.size(); ++j)
+                if (intersectionOverUnion(detectedResults[i], detectedResults[j]) >= boxiou_threshold)
+                    detectedResults[j].confidence = 0;
+            outDetectedResults.push_back(detectedResults[i]);
+        }
+  } // end if/else
+}
 
 void postprocess(const uint64_t* output_shape, const void* voutputData, const size_t *input_shape, const size_t bytesize, const uint32_t dimCount, std::vector<DetectedResult> &detectedResults)
 {
@@ -275,11 +329,14 @@ void postprocess(const uint64_t* output_shape, const void* voutputData, const si
                 float height = static_cast<float>(std::exp(outData[box_index + 3 * entriesNum]) * anchors[2 * n + 1] * original_im_h / scaleH);
                 float width = static_cast<float>(std::exp(outData[box_index + 2 * entriesNum]) * anchors[2 * n] * original_im_w / scaleW);
 
+		//todo : need to update anchors based on masks
                 DetectedResult obj;
                 obj.x = std::clamp(x - width / 2, 0.f, static_cast<float>(original_im_w));
                 obj.y = std::clamp(y - height / 2, 0.f, static_cast<float>(original_im_h));
                 obj.width = std::clamp(width, 0.f, static_cast<float>(original_im_w - obj.x));
                 obj.height = std::clamp(height, 0.f, static_cast<float>(original_im_h - obj.y));
+
+
 
                 for (size_t j = 0; j < classes; ++j) {
                     int class_index = calculateEntryIndex(entriesNum, regionCoordsCount, classes + 1, n * entriesNum + i, regionCoordsCount + 1 + j);
@@ -291,6 +348,7 @@ void postprocess(const uint64_t* output_shape, const void* voutputData, const si
                         obj.classId = j;
                         obj.classText = getClassLabelText(j);
                         detectedResults.push_back(obj);
+			//printf("Adding boxes: %f %f %f %f, %f %f %f %f\n", x, y, width, height, obj.x,obj.y, obj.width,obj.height);
                     }
                 }
             } // else
@@ -344,10 +402,44 @@ void printInferenceResults(std::vector<DetectedResult> &results)
 	}
 }
 
+void displayGUIInferenceResults(cv::Mat presenter, std::vector<DetectedResult> &results)
+{
+  //for (auto & obj : results) {
+  //cv::imshow("Detection Results", presenter);
+  //cv::waitKey(1);
+}
+
+void saveInferenceResultsAsVideo(cv::Mat &presenter, std::vector<DetectedResult> &results)
+{
+  for (auto & obj : results) {
+    std::cout << "Drawing at " << obj.x << "," << obj.y << " " << obj.x+obj.width << " " << obj.y+obj.height << std::endl;
+    cv::rectangle( presenter,
+         cv::Point(obj.x,obj.y),
+         cv::Point(obj.x+obj.width, obj.y+obj.height ),
+         cv::Scalar(255, 0, 0),
+         2, cv::LINE_8 );
+
+    cv::rectangle( presenter,
+         cv::Point(100, 100),
+         cv::Point(500, 500),
+         cv::Scalar(0, 255, 0),
+         4, cv::LINE_8 );
+  }
+  cv::imwrite("result.jpg", presenter);
+}
+
 int main(int argc, char** argv) {
 
+    std::string videoStream = "coca-cola-4465029.mp4";
+    if (argc > 1)
+    {
+	    videoStream = argv[1];
+    }
+
+    std::cout << "Video Stream: " << videoStream.c_str() << std::endl;
+
     // Open video
-    if (!openVideo("coca-cola-4465029.mp4")) {
+    if (!openVideo(videoStream.c_str())) {
 	    std::cout << "Nothing to do." << std::endl;
 	    return 0;
     }
@@ -390,13 +482,16 @@ int main(int argc, char** argv) {
     std::cout << "Server ready for inference " << std::endl;
     std::cout << "--------------------------------------------------------------" << std::endl;
 
+    auto initTime = std::chrono::high_resolution_clock::now();
+    unsigned long numberOfFrames = 0;
+    while (getVideoFrame()) {
+
+    auto startTime = std::chrono::high_resolution_clock::now();
+
     // prepare request
     OVMS_InferenceRequest* request{nullptr};
     OVMS_InferenceRequestNew(&request, srv, MODEL_NAME, MODEL_VERSION);
     OVMS_InferenceRequestAddInput(request, INPUT_NAME, OVMS_DATATYPE_FP32, SHAPE, DIM_COUNT);
-
-    while (getVideoFrame()) {
-    auto startTime = std::chrono::high_resolution_clock::now();
 
     cv::Mat newImage;
     cv::Mat floatImage;
@@ -411,7 +506,7 @@ int main(int argc, char** argv) {
     const int DATA_SIZE = floatImage.step[0] * floatImage.rows;
 
     OVMS_InferenceRequestInputSetData(request, INPUT_NAME, reinterpret_cast<void*>(floatImage.data), DATA_SIZE , OVMS_BUFFERTYPE_CPU, 0);    
-    std::cout << "Perform inference" << std::endl;
+    //std::cout << "Perform inference" << std::endl;
 
 
     // run sync request
@@ -471,9 +566,12 @@ int main(int argc, char** argv) {
     //std::cout << "------------> " << outputName3  << " " << dimCount3 << " " << shape3[0] << " " << shape3[1] << " " << shape3[2] << " " << shape3[3] << " " << bytesize3 << " " << outputCount << std::endl;
 
     std::vector<DetectedResult> detectedResults;
+    std::vector<DetectedResult> detectedResultsFiltered;
     postprocess(shape1, voutputData1, SHAPE, bytesize1, dimCount1, detectedResults);
-    printInferenceResults(detectedResults);
-    detectedResults.clear();
+    postprocess(detectedResults, detectedResultsFiltered);
+    printInferenceResults(detectedResultsFiltered);
+    //displayGUIInferenceResults(img, detectedResultsFiltered);
+    //saveInferenceResultsAsVideo(img, detectedResultsFiltered);
 
     /*
     std::stringstream ss;
@@ -488,11 +586,18 @@ int main(int argc, char** argv) {
     */
     //std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     // todo comment below to run against full video or pass in time interval and remove instead
-    //break;
-
     auto endTime = std::chrono::high_resolution_clock::now();
     std::cout << "Pipeline Latency (ms): " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count() << std::endl;
 
+    numberOfFrames++;
+    unsigned long elapsedTotalTime = ((std::chrono::duration_cast<std::chrono::seconds>(endTime-initTime)).count());
+    if (elapsedTotalTime > 0)
+    {
+      std::cout << "DEBUG: " << numberOfFrames << " " << ((std::chrono::duration_cast<std::chrono::seconds>(endTime-initTime)).count()) << std::endl;
+      int fps = numberOfFrames/((std::chrono::duration_cast<std::chrono::seconds>(endTime-initTime)).count()); // convert to seconds
+      std::cout << "FPS: " << fps << std::endl;
+    }
+    //break;
     } // end while get frames
 
 
