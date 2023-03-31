@@ -434,9 +434,16 @@ int main(int argc, char** argv) {
     std::cout << std::setprecision(2) << std::fixed;
 
     std::string videoStream = "coca-cola-4465029.mp4";
+    int server_grpc_port = 9178;
+    int server_http_port = 11338;
+
     if (argc > 1)
     {
 	    videoStream = argv[1];
+    }
+    if (argc > 3) {
+	     server_grpc_port = std::stoi(argv[2]);
+	     server_http_port = std::stoi(argv[3]);
     }
 
     std::cout << "Video Stream: " << videoStream.c_str() << std::endl;
@@ -457,8 +464,8 @@ int main(int argc, char** argv) {
     OVMS_ModelsSettingsNew(&modelsSettings);
     OVMS_ServerNew(&srv);
 
-    OVMS_ServerSettingsSetGrpcPort(serverSettings, 9178);
-    OVMS_ServerSettingsSetRestPort(serverSettings, 11338);
+    OVMS_ServerSettingsSetGrpcPort(serverSettings, server_grpc_port);
+    OVMS_ServerSettingsSetRestPort(serverSettings, server_http_port);
 
     OVMS_ServerSettingsSetLogLevel(serverSettings, OVMS_LOG_DEBUG);
     OVMS_ModelsSettingsSetConfigPath(modelsSettings, "config_yolov5.json");
