@@ -29,6 +29,4 @@ echo "TODO: Download and build yolov5 post processing libraries"
 
 echo "Building yolov5 OVMS-CAPI POC"
 cd ../..
-make from_docker
-make build_image
-
+./build-ovms-capi.sh
