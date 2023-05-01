@@ -37,7 +37,7 @@ RUN	set -e ; \
         groupadd --gid 5000 ovms ; \
         useradd --home-dir /home/ovms --create-home --uid 5000 --gid 5000 --groups 39,44 --shell /bin/bash --skel /dev/null ovms
 
-ARG BUILD_DEPENDENCIES="build-essential libxml2 curl libpugixml1v5 libtbb2 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav"
+ARG BUILD_DEPENDENCIES="build-essential libxml2 curl libpugixml1v5 libtbb2 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav libgtk2.0-dev"
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ${BUILD_DEPENDENCIES} && \
@@ -48,8 +48,8 @@ RUN find / -name core.hpp
 
 COPY demos /ovms/demos
 WORKDIR /ovms/demos
-RUN make -f MakefileCapi cpp
-RUN make -f MakefileCapi c
+#RUN make -f MakefileCapi cpp
+#RUN make -f MakefileCapi c
 
 USER ovms
 ENTRYPOINT ["/bin/bash"]

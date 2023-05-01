@@ -20,7 +20,7 @@ CV_LIBS = -L/opt/opencv_repo/build/lib -L/ovms/lib/
 
 cpp:
 	mkdir -vp /ovms/bin
-	g++ main_capi.cpp -I/ovms/include $(CV_INCLUDES) $(CV_LIBS) -L/opt/opencv_repo/build/lib -lopencv_imgcodecs -lopencv_imgproc -lopencv_videoio -lopencv_core -lopencv_videoio_gstreamer -lovms_shared -fPIC --std=c++17 -o /ovms/bin/capi_cpp_example
+	g++ main_capi.cpp -I/ovms/include $(CV_INCLUDES) $(CV_LIBS) -L/opt/opencv_repo/build/lib -lopencv_imgcodecs -lopencv_imgproc -lopencv_videoio -lopencv_core -lopencv_videoio_gstreamer -lovms_shared -lopencv_highgui -fPIC --std=c++17 -o /ovms/bin/capi_cpp_example
 	#LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/ovms/lib:/opt/opencv_repo/build/lib /ovms/bin/capi_cpp_example
 
 c:

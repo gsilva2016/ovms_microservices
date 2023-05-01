@@ -4,9 +4,7 @@ FROM openvino/model_server-capi:latest
 USER root
 
 # Install GPU drivers for Flex/Arc
-RUN apt update; apt install -y wget curl vim gpg-agent; wget -qO - https://repositories.intel.com/graphics/intel-graphics.key | gpg --dearmor --output /usr/share/keyrings/intel-graphics.gpg; echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/intel-graphics.gpg] https://repositories.intel.com/graphics/ubuntu focal-devel main' | tee  /etc/apt/sources.list.d/intel.gpu.focal.list; apt update; 
-
-RUN apt-get install -y \
+RUN apt update -y; apt install -y wget curl vim gpg-agent; wget -qO - https://repositories.intel.com/graphics/intel-graphics.key | gpg --dearmor --output /usr/share/keyrings/intel-graphics.gpg; echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/intel-graphics.gpg] https://repositories.intel.com/graphics/ubuntu focal-devel main' | tee  /etc/apt/sources.list.d/intel.gpu.focal.list; apt update -y; DEBIAN_FRONTEND=noninteractive apt-get install -y \
   intel-opencl-icd \
   intel-level-zero-gpu level-zero \
   intel-media-va-driver-non-free libmfx1 libmfxgen1 libvpl2 \
