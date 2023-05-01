@@ -67,3 +67,8 @@ Person-detection-retail-0013 SSD (544x320)
 
 
 ** NOTE: For performing inference on CPU modify the config_object_detection.json and update the CLI text above to not use vaapidecodebin and vaapipostproc GST elements.
+
+
+## Run Grafana GPU Metrics Dashboard on Arc discrete A770m GPU and Intel 12th Gen Core integrated GPU (https://simplynuc.com/serpent-canyon/) 
+
+Refer to https://github.com/gsilva2016/docker-intel-gpu-telegraf/tree/master
