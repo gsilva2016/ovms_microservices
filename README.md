@@ -18,24 +18,52 @@ Phase 2
 - Create MLOps demo - DONE
   - Push Yolov5 version 2 model and show increased accuracy (slower performance) and backout with no downtime - DONE
 
+Phase 3
+- Add SSD OpenVINO model https://github.com/openvinotoolkit/open_model_zoo/tree/master/models/intel/person-detection-retail-0013 - DONE
+- Improve postprocessing accuracy - DONE
+- Add live rendering support which shows inference metadata overlayed - DONE
+- Support multiple object detection model types in a single OVMS C-API server - DONE
+
 
 ## Build Container
-./build.sh
+`./build.sh`
 
 
-## Run Yolov5s Demo on Arc discrete A770m GPU (https://simplynuc.com/serpent-canyon/) 
+## Run Object Detection Demo on Arc discrete A770m GPU (https://simplynuc.com/serpent-canyon/) 
 
-`cd yolov5`
+`cd object_detection`
 
 `./docker-run.sh`
 
-For Arc GPU media decode and inferencing on the client (person who executed the buildh.sh script) downloaded Pexel MP4 Video File :
+<b>For Arc GPU media decode and inferencing on the client (person who executed the buildh.sh script) downloaded MP4 Video Files :</b>
 
-`/ovms/bin/capi_cpp_example "filesrc location=./coca-cola-4465029.mp4 ! qtdemux ! h264parse ! vaapidecodebin ! vaapipostproc width=416 height=416 scale-method=fast ! videoconvert ! video/x-raw ! appsink drop=1"`
+`VIDEO_FILE=people-detection.mp4`
 
-For Arc GPU media decode and inferencing on an RTSP stream :
+or
 
-`/ovms/bin/capi_cpp_example "rtspsrc location=rtsp://127.0.0.1:8554/camera_0 ! rtph264depay ! vaapidecodebin ! vaapipostproc width=416 height=416 scale-method=fast ! videoconvert ! video/x-raw ! appsink drop=1"`
+`VIDEO_FILE=coca-cola-4465029.mp4`
 
 
-** NOTE: For running on CPU modify the config_yolo.json and update the CLI text above to not use vaapidecodebin and vaapipostproc GST elements.
+Yolov5s (416x416)
+
+`/ovms/bin/capi_cpp_example "filesrc location=./$VIDEO_FILE ! qtdemux ! h264parse ! vaapidecodebin ! vaapipostproc width=416 height=416 scale-method=fast ! videoconvert ! video/x-raw ! appsink drop=1" 9178 11338 yolov5`
+
+
+Person-detection-retail-0013 SSD (544x320)
+
+`/ovms/bin/capi_cpp_example "filesrc location=$VIDEO_FILE ! qtdemux ! h264parse ! vaapidecodebin ! vaapipostproc width=544 height=320 scale-method=fast ! videoconvert ! video/x-raw ! appsink drop=1" 9178 11338 person-detection-retail-0013`
+
+
+<b>For Arc GPU media decode and inferencing on an RTSP stream :</b>
+
+Yolov5s (416x416)
+
+`/ovms/bin/capi_cpp_example "rtspsrc location=rtsp://127.0.0.1:8554/camera_0 ! rtph264depay ! vaapidecodebin ! vaapipostproc width=416 height=416 scale-method=fast ! videoconvert ! video/x-raw ! appsink drop=1" 9178 11338 yolov5`
+
+
+Person-detection-retail-0013 SSD (544x320)
+
+`/ovms/bin/capi_cpp_example "rtspsrc location=rtsp://127.0.0.1:8554/camera_0 ! rtph264depay ! vaapidecodebin ! vaapipostproc width=544 height=320 scale-method=fast ! videoconvert ! video/x-raw ! appsink drop=1" 9178 11338 person-detection-retail-0013`
+
+
+** NOTE: For performing inference on CPU modify the config_object_detection.json and update the CLI text above to not use vaapidecodebin and vaapipostproc GST elements.
