@@ -24,4 +24,4 @@ wget https://storage.openvinotoolkit.org/repositories/open_model_zoo/2023.0/mode
 
 echo "Building yolov5 OVMS-CAPI POC"
 cd ../..
-./build-ovms-capi.sh
+./object_detection/build-ovms-capi.sh
