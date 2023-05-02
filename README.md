@@ -35,35 +35,37 @@ Phase 3
 
 `./docker-run.sh`
 
+```make -f MakefileCapi cpp```
+
 <b>For Arc GPU media decode and inferencing on the client (person who executed the buildh.sh script) downloaded MP4 Video Files :</b>
 
-`VIDEO_FILE=people-detection.mp4`
+```VIDEO_FILE=people-detection.mp4```
 
 or
 
-`VIDEO_FILE=coca-cola-4465029.mp4`
+```VIDEO_FILE=coca-cola-4465029.mp4```
 
 
 Yolov5s (416x416)
 
-`/ovms/bin/capi_cpp_example "filesrc location=./$VIDEO_FILE ! qtdemux ! h264parse ! vaapidecodebin ! vaapipostproc width=416 height=416 scale-method=fast ! videoconvert ! video/x-raw ! appsink drop=1" 9178 11338 yolov5`
+```/ovms/bin/capi_cpp_example "filesrc location=./$VIDEO_FILE ! qtdemux ! h264parse ! vaapidecodebin ! vaapipostproc width=416 height=416 scale-method=fast ! videoconvert ! video/x-raw ! appsink drop=1" 9178 11338 yolov5```
 
 
 Person-detection-retail-0013 SSD (544x320)
 
-`/ovms/bin/capi_cpp_example "filesrc location=$VIDEO_FILE ! qtdemux ! h264parse ! vaapidecodebin ! vaapipostproc width=544 height=320 scale-method=fast ! videoconvert ! video/x-raw ! appsink drop=1" 9178 11338 person-detection-retail-0013`
+```/ovms/bin/capi_cpp_example "filesrc location=$VIDEO_FILE ! qtdemux ! h264parse ! vaapidecodebin ! vaapipostproc width=544 height=320 scale-method=fast ! videoconvert ! video/x-raw ! appsink drop=1" 9178 11338 person-detection-retail-0013```
 
 
 <b>For Arc GPU media decode and inferencing on an RTSP stream :</b>
 
 Yolov5s (416x416)
 
-`/ovms/bin/capi_cpp_example "rtspsrc location=rtsp://127.0.0.1:8554/camera_0 ! rtph264depay ! vaapidecodebin ! vaapipostproc width=416 height=416 scale-method=fast ! videoconvert ! video/x-raw ! appsink drop=1" 9178 11338 yolov5`
+```/ovms/bin/capi_cpp_example "rtspsrc location=rtsp://127.0.0.1:8554/camera_0 ! rtph264depay ! vaapidecodebin ! vaapipostproc width=416 height=416 scale-method=fast ! videoconvert ! video/x-raw ! appsink drop=1" 9178 11338 yolov5```
 
 
 Person-detection-retail-0013 SSD (544x320)
 
-`/ovms/bin/capi_cpp_example "rtspsrc location=rtsp://127.0.0.1:8554/camera_0 ! rtph264depay ! vaapidecodebin ! vaapipostproc width=544 height=320 scale-method=fast ! videoconvert ! video/x-raw ! appsink drop=1" 9178 11338 person-detection-retail-0013`
+```/ovms/bin/capi_cpp_example "rtspsrc location=rtsp://127.0.0.1:8554/camera_0 ! rtph264depay ! vaapidecodebin ! vaapipostproc width=544 height=320 scale-method=fast ! videoconvert ! video/x-raw ! appsink drop=1" 9178 11338 person-detection-retail-0013```
 
 
 ** NOTE: For performing inference on CPU modify the config_object_detection.json and update the CLI text above to not use vaapidecodebin and vaapipostproc GST elements.
