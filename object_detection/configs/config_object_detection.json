@@ -1,8 +1,8 @@
 {
     "model_config_list": [
         {"config": {
-                "name": "ssd-persondet",
-                "base_path": "person-detection-retail-0013/FP16-INT8",
+                "name": "people-detection-retail-0013",
+                "base_path": "model_repo/person-detection-retail-0013",
                 "layout": "NHWC:NCHW",
                 "shape": "(1,320,544,3)",
                 "nireq": 3,
@@ -13,10 +13,21 @@
         },
         {"config": {
                 "name": "yolov5s",
-                "base_path": "yolov5s/FP16-INT8",
+                "base_path": "model_repo/yolov5s",
                 "layout": "NHWC:NCHW",
                 "shape": "(1,416,416,3)",
-                "nireq": 1,
+                "nireq": 3,
+                "batch_size":"1",
+                "plugin_config": {"PERFORMANCE_HINT": "LATENCY"},
+                "target_device": "GPU.1"},
+                "latest": { "num_versions": 2 }
+        },
+        {"config": {
+                "name": "text-detect-0002",
+                "base_path": "model_repo/text-detect-0002",
+                "layout": "NHWC:NCHW",
+                "shape": "(1,704,704,3)",
+                "nireq": 3,
                 "batch_size":"1",
                 "plugin_config": {"PERFORMANCE_HINT": "LATENCY"},
                 "target_device": "GPU.1"},

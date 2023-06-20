@@ -54,8 +54,11 @@ from_web:
 build_image:
 	cp -vR capi_files/* capi/$(DIST_OS)/
 	cp *.mp4 capi/$(DIST_OS)/demos
-	cp -vR person-detection-retail-0013/ capi/$(DIST_OS)/demos
-	cp -vR yolov5s capi/$(DIST_OS)/demos
+	#cp -vR person-detection-retail-0013/ capi/$(DIST_OS)/demos
+	#cp -vR yolov5s capi/$(DIST_OS)/demos
+	#cp -vR text-detect-0002/ capi/$(DIST_OS)/demos 
+	cp -vR configs capi/$(DIST_OS)/demos
+	cp -vR model_repo capi/$(DIST_OS)/demos
 	cd capi/$(DIST_OS)/ && docker build $(NO_CACHE_OPTION) -f Dockerfile.$(BASE_OS) . \
 		--build-arg http_proxy=$(HTTP_PROXY) --build-arg https_proxy="$(HTTPS_PROXY)" \
 		--build-arg no_proxy=$(NO_PROXY) \
