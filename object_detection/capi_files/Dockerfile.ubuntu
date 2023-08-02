@@ -14,7 +14,7 @@
 # limitations under the License.
 #
 
-ARG BASE_IMAGE=ubuntu:20.04
+ARG BASE_IMAGE=ubuntu:22.04
 FROM $BASE_IMAGE as base_build
 
 SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
@@ -27,7 +27,6 @@ RUN tar -xf ovms.tar.gz
 RUN chown -R ovms:ovms /ovms
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 
-ARG BASE_IMAGE=ubuntu:20.04
 FROM $BASE_IMAGE as release
 ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-c"]
@@ -37,19 +36,88 @@ RUN	set -e ; \
         groupadd --gid 5000 ovms ; \
         useradd --home-dir /home/ovms --create-home --uid 5000 --gid 5000 --groups 39,44 --shell /bin/bash --skel /dev/null ovms
 
-ARG BUILD_DEPENDENCIES="build-essential libxml2 curl libpugixml1v5 libtbb2 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav libgtk2.0-dev"
+#COPY --from=base_build /ovms /ovms
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ${BUILD_DEPENDENCIES} && \
+# Remove older builds of OpenCV
+#RUN rm /ovms/lib/*opencv*; 
+
+#ARG BUILD_DEPENDENCIES="build-essential git cmake libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev libxml2 curl libpugixml1v5 libtbb2 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav libgtk2.0-dev libhdf5-serial-dev libvtk9-dev"
+
+# Install dependencies for compiling ocv4.7.0
+ARG BUILD_DEPENDENCIES="cmake build-essential git-gui meson python3 python3-pip flex bison clang libgtk2.0-dev libhdf5-serial-dev libvtk9-dev libtbb2 libxml2 curl libpugixml1v5"
+
+RUN apt -y update && \
+    apt install -y ${BUILD_DEPENDENCIES} && \
     rm -rf /var/lib/apt/lists/* && rm -rf /tmp/*
 
-COPY --from=base_build /ovms /ovms
-RUN find / -name core.hpp
+# Install GPU drivers for Arc. Note replace arc with flex/max below
+RUN apt update -y; apt install -y wget curl vim gpg-agent; wget -qO - https://repositories.intel.com/graphics/intel-graphics.key | gpg --dearmor --output /usr/share/keyrings/intel-graphics.gpg; echo "deb [arch=amd64,i386 signed-by=/usr/share/keyrings/intel-graphics.gpg] https://repositories.intel.com/graphics/ubuntu jammy arc" | tee /etc/apt/sources.list.d/intel-gpu-jammy.list; apt update -y; DEBIAN_FRONTEND=noninteractive apt-get install -y \
+intel-opencl-icd intel-level-zero-gpu level-zero intel-media-va-driver-non-free libmfx1 libmfxgen1 libvpl2 libegl-mesa0 libegl1-mesa libegl1-mesa-dev libgbm1 libgl1-mesa-dev libgl1-mesa-dri libglapi-mesa libgles2-mesa-dev libglx-mesa0 libigdgmm12 libxatracker2 mesa-va-drivers mesa-vdpau-drivers mesa-vulkan-drivers va-driver-all vainfo libcanberra-gtk-module
 
+# Install GST dependencies
+RUN apt -y update; DEBIAN_FRONTEND=noninteractive apt install -y libva-dev autoconf libtool libpciaccess-dev libssl-dev pkg-config libdrm-dev libgbm-dev libcogl-pango-dev libudev-dev lld libx11-xcb-dev libpciaccess-dev nasm yasm libx11-dev libxcb-present-dev libxcb-dri3-dev xorg xorg-dev libgl1-mesa-glx libgl1-mesa-dev
+RUN pip3 install meson==0.55.0
+
+# Install OneVPL CPU & GPU Support
+RUN wget https://github.com/oneapi-src/oneVPL/archive/refs/tags/v2023.3.1.zip
+RUN unzip v2023.3.1.zip
+RUN cd oneVPL*; export VPL_INSTALL_DIR=`pwd`/../_vplinstall; mkdir _build; mkdir $VPL_INSTALL_DIR; cd _build; cmake .. -DCMAKE_INSTALL_PREFIX=$VPL_INSTALL_DIR; cmake --build . --config Release; cmake --build . --config Release --target install
+
+RUN wget https://github.com/oneapi-src/oneVPL-intel-gpu/archive/refs/tags/intel-onevpl-23.2.4.zip
+RUN unzip intel-onevpl-23.2.4.zip
+RUN cd oneVPL-intel-gpu*; mkdir build; cd build; cmake ..; make -j`nproc`; make install
+
+# Build GST
+RUN git clone https://github.com/GStreamer/gst-build.git;
+RUN cd gst-build; git checkout 1.19.2;
+RUN cd gst-build; meson builddir --buildtype=release -Dvaapi=enabled -Dvaapi:=disabled: -Dbad=enabled -Dgst-plugins-bad:msdk=enabled -Dgst-plugins-good:soup=disabled -Dgst-plugin-good:ffmpeg=disabled -Dintrospection=disabled -Dgst-plugin-good:sqlite3=disabled -Dpygobject:gobject-introspection=disabled -Dgst-plugins-bad:openjpeg=disabled -Dgst-plugins-bad:tests=disabled -Dgst-plugins-bad:examples=disabled -Dtests=disabled -Dexamples=disabled -Dgst-examples=disabled;
+RUN cd gst-build; ninja -j 10 -C builddir;
+RUN cd gst-build; cd builddir; ninja install
+
+# Build OCV 4.7.0 with GST HW Accel
+RUN opencv_branch=${opencv_branch:-4.7.0}; \
+work_dir=${work_dir:-/opt}; \
+current_working_dir=$(pwd); \
+cd $work_dir; \
+git clone https://github.com/opencv/opencv.git --depth 1 -b $opencv_branch $work_dir/opencv_repo; \
+git clone https://github.com/opencv/opencv_contrib.git; \
+cd $work_dir/opencv_contrib; git checkout 4.7.0; \
+cd $work_dir/opencv_repo; \
+mkdir -p $work_dir/opencv_repo/build; \
+cd $work_dir/opencv_repo/build; \
+cmake \
+-D OPENCV_EXTRA_MODULES_PATH=/opt/opencv_contrib/modules \
+-D VIDEOIO_PLUGIN_LIST=gstreamer \
+-D WITH_GSTREAMER=ON \
+-D WITH_FFMPEG=OFF \
+-D CMAKE_BUILD_TYPE=Release \
+-D CMAKE_INSTALL_PREFIX=/usr/lib \
+-D OPENCV_LIB_INSTALL_PATH=x86_64-linux-gnu \
+-D WITH_OPENJPEG=OFF \
+-D WITH_JASPER=OFF \
+-D WITH_OPENEXR=OFF \
+-D WITH_TIFF=OFF \
+-D WITH_GTK=ON $work_dir/opencv_repo && \
+make "-j10" && \
+make install
+
+# COPY OVMS runtime
+COPY --from=base_build /ovms /ovms
+# Remove older builds of OpenCV
+RUN rm /ovms/lib/*opencv*;
 COPY demos /ovms/demos
 WORKDIR /ovms/demos
-RUN make -f MakefileCapi cpp
+
+# COPY CAPI DEMO FILES
+RUN mv model_repo configs
+ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/:/usr/local/lib/x86_64-linux-gnu/:/usr/local/lib:/ovms/lib:$LD_LIBRARY_PATH
+RUN make -f MakefileCapi cpp_gst
 #RUN make -f MakefileCapi c
 
 USER ovms
+ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/:/usr/local/lib/x86_64-linux-gnu/:/usr/local/lib:/ovms/lib:$LD_LIBRARY_PATH
+
+# enable hw decoders if choosing to use FFMPEG. Note default in this POC is GST though.
+ENV OPENCV_FFMPEG_CAPTURE_OPTIONS="hw_decoders_any;vaapi"
+
 ENTRYPOINT ["/bin/bash"]
