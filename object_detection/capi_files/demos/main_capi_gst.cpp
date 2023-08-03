@@ -26,6 +26,7 @@
 #include <regex>
 #include <atomic>
 #include <mutex>
+#include <condition_variable>
 
 #include <signal.h>
 #include <stdio.h>
@@ -46,11 +47,14 @@
 
 #include "ovms.h"  // NOLINT
 
+//using namespace std;
+//using namespace cv;
+
 std::mutex _mtx;
 std::mutex _infMtx;
 std::mutex _drawingMtx;
-std::condition_variable _condVarReloadVideoReq;
-bool _reloadVideoReq;
+std::condition_variable _cvAllDecodersInitd;
+bool _allDecodersInitd = false;
 
 typedef struct DetectedResult {
 	int frameId;
@@ -90,8 +94,6 @@ protected:
 OVMS_Server* _srv;
 int _server_grpc_port;
 int _server_http_port;
-//std::vector<ObjectDetectionInterface*> _
-//ObjectDetectionInterface* _objDet
 
 /* OpenCV media decode */
 std::atomic<int> _mediaPipelinePaused;
@@ -116,10 +118,13 @@ public:
         m_videoHeight = video_height;
 
         if (mediaLocation.find("rtsp") != std::string::npos ) {
+        // video/x-raw(memory:VASurface),format=NV12
             switch (videoType)
             {
                 case H264:
-                    return "rtspsrc location=" + mediaLocation + " ! rtph264depay ! vaapidecodebin ! vaapipostproc" +
+//                    return "rtspsrc location=" + mediaLocation + " ! rtph264depay ! vaapidecodebin ! video/x-raw(memory:VASurface),format=BGRA ! appsink drop=1 sync=0";
+                    
+                    return "rtspsrc location=" + mediaLocation + " ! rtph264depay ! vaapidecodebin ! video/x-raw(memory:VASurface),format=NV12 ! vaapipostproc" +
                     " width=" + std::to_string(video_width) +
                     " height=" + std::to_string(video_height) +
                     " scale-method=fast ! videoconvert ! video/x-raw,format=BGR ! queue ! appsink drop=1 sync=0";
@@ -669,8 +674,6 @@ private:
     const char* INPUT_NAME = "input";
 };
 
-//ObjectDetectionInterface* _objDet = NULL;
-//ObjectDetectionInterface* _textDet = NULL;
 GStreamerMediaPipelineService* _mediaService = NULL;
 std::string _user_request;
 
@@ -689,11 +692,7 @@ bool openVideo(std::string videoPipeline, cv::VideoCapture& vidcap)
 {
 
     const char* videoFileName = videoPipeline.c_str();
-    //"rtspsrc location=rtsp://127.0.0.1:8554/camera_2 ! rtph264depay ! vaapidecodebin ! vaapipostproc width=704 height=704 scale-method=fast ! videoconvert ! video/x-raw ! appsink drop=1"; //
-    //printf("OV 1 %s\n", videoFileName);
-
-    //printf("OV 1\n");
-    //return true;
+    
     // Default to GSTREAMER for media decode
     int retries = 5;
     for (int i = 0; i < retries; i++)
@@ -760,12 +759,6 @@ bool setActiveModel(int detectionType, ObjectDetectionInterface** objDet)
     if (objDet == NULL)
         return false;
 
-    // if (objDet != NULL) {
-    //     // todo:
-    //     delete objDet;
-    //     objDet = NULL;
-    // }
-
     if (detectionType == 0) {
         *objDet = new Yolov5();
     }
@@ -778,10 +771,6 @@ bool setActiveModel(int detectionType, ObjectDetectionInterface** objDet)
         return false;
     }
     return true;
-}
-
-void parse_user_input() {
-
 }
 
 static void onInterrupt(int status) {
@@ -854,7 +843,7 @@ void displayGUIInferenceResults(cv::Mat analytics_frame, std::vector<DetectedRes
     cv::putText(analytics_frame, tid, cv::Size(0, 40), cv::FONT_HERSHEY_PLAIN, 1, (255, 0, 0), 1, cv::LINE_4);
 
     cv::Mat presenter;
-    resize(analytics_frame, presenter, cv::Size(_window_width, _window_height), 0, 0, cv::INTER_CUBIC);
+    resize(analytics_frame, presenter, cv::Size(_window_width, _window_height), 0, 0, cv::INTER_LINEAR);
 
     {
     std::lock_guard<std::mutex> lock(_drawingMtx);
@@ -884,7 +873,8 @@ void saveInferenceResultsAsVideo(cv::Mat &presenter, std::vector<DetectedResult>
 // This function is responsible for generating a GST pipeline that
 // decodes and resizes the video stream based on the desired window size or
 // the largest analytics frame size needed if running headless
-std::string getVideoPipelineText(std::string mediaPath, ObjectDetectionInterface* objDet, ObjectDetectionInterface* textDet) {
+std::string getVideoPipelineText(std::string mediaPath, ObjectDetectionInterface* objDet, ObjectDetectionInterface* textDet) 
+{
 
     std::vector<int> pipelineFrameShape = objDet->getModelInputShape();
     if (textDet) {
@@ -995,8 +985,9 @@ void performTextDetectionInference(OVMS_Server* srv, std::vector<DetectedResult>
     textDet->postprocess(detectedTextResults, detectedResults);
 
 }
-int streamId = 0;
-bool createModelServer(OVMS_Server* srv, OVMS_ServerSettings* serverSettings, OVMS_ModelsSettings* modelsSettings) {
+
+bool createModelServer(OVMS_Server* srv, OVMS_ServerSettings* serverSettings, OVMS_ModelsSettings* modelsSettings) 
+{
 
     if (srv == NULL)
         return false;
@@ -1060,109 +1051,112 @@ gboolean bus_call(GstBus *bus, GstMessage *msg, gpointer data)
 	return TRUE;
 }
 
-int threadCnt = 0;
-void run_stream(std::string mediaPath) {
 
-    // OVMS is a global process wide server so can't create many of them
-    // OVMS_Server* srv = NULL;
-    // OVMS_ServerSettings* serverSettings = 0;
-    // OVMS_ModelsSettings* modelsSettings = 0;
+bool loadGStreamer(GstElement** pipeline,  GstElement** appsink, std::string mediaPath, ObjectDetectionInterface* _objDet, ObjectDetectionInterface* _textDet) 
+{    
+    static int threadCnt = 0;
     
-    // OVMS_ServerSettingsNew(&serverSettings);
-    // OVMS_ModelsSettingsNew(&modelsSettings);
-    // OVMS_ServerNew(&srv);
-    // OVMS_ServerSettingsSetGrpcPort(serverSettings, _server_grpc_port);
-    // OVMS_ServerSettingsSetRestPort(serverSettings, _server_http_port);
-    // OVMS_ServerSettingsSetLogLevel(serverSettings, OVMS_LOG_ERROR);
-
-    // // Loads models in single OVMS C-API server
-    // OVMS_ModelsSettingsSetConfigPath(modelsSettings, "configs/config_object_detection.json");
-
-    // if (!createModelServer(srv, serverSettings, modelsSettings))
-    // {
-    //     std::cout << "Failed to create model server\n" << std::endl;
-    //     return;
-    // }
-    // else {
-    //     std::cout << "--------------------------------------------------------------" << std::endl;
-    //     std::cout << "Server ready for inference C-API ports " << _server_grpc_port << " " << _server_http_port << std::endl;
-    //     std::cout << "--------------------------------------------------------------" << std::endl;
-    //     _server_http_port+=1;
-    //     _server_grpc_port+=1;        
-    // }
-
-    ObjectDetectionInterface* _objDet;
-    ObjectDetectionInterface* _textDet;
-    
-    _textDet = new TextDetection();
-    
-    if (!setActiveModel(_detectorModel, &_objDet)) {
-        std::cout << "Unable to set active detection model" << std::endl;
-        return;
-    }
-
     std::string videoPipelineText = getVideoPipelineText(mediaPath, _objDet, ((_includeOCR) ? _textDet : NULL));
     std::cout << "--------------------------------------------------------------" << std::endl;
     std::cout << "Opening Media Pipeline: " << videoPipelineText << std::endl;
     std::cout << "--------------------------------------------------------------" << std::endl;
+
+    *pipeline = gst_parse_launch (videoPipelineText.c_str(), NULL);
+    if (*pipeline == NULL) {
+        std::cout << "ERROR: Failed to parse GST pipeline. Quitting." << std::endl;
+        return false;
+    }
+
+    std::string appsinkName = "appsink" + std::to_string(threadCnt++);
+
+    *appsink = gst_bin_get_by_name (GST_BIN (*pipeline), appsinkName.c_str());
+
+    // Check if all elements were created
+    if (!(*appsink))
+    {
+        printf("ERROR: Failed to initialize GST pipeline (missing %s) Quitting.\n", appsinkName.c_str());
+        return false;
+    }
+
+    GstStateChangeReturn gst_res;
+
+    // Start pipeline so it could process incoming data
+    gst_res = gst_element_set_state(*pipeline, GST_STATE_PLAYING);
+    
+    if (gst_res != GST_STATE_CHANGE_SUCCESS && gst_res != GST_STATE_CHANGE_ASYNC  ) {
+        printf("ERROR: StateChange not successful. Error Code: %d\n", gst_res);
+        return false;
+    }
+    
+    return true;
+}
+
+// OVMS C-API is a global process (singleton design) wide server so can't create many of them
+bool loadOVMS(OVMS_Server* srv) 
+{
+     OVMS_Status* res = NULL;
+     
+     OVMS_ServerSettings* serverSettings = 0;
+     OVMS_ModelsSettings* modelsSettings = 0;
+    
+     OVMS_ServerSettingsNew(&serverSettings);
+     OVMS_ModelsSettingsNew(&modelsSettings);
+     OVMS_ServerNew(&_srv);
+     OVMS_ServerSettingsSetGrpcPort(serverSettings, _server_grpc_port);
+     OVMS_ServerSettingsSetRestPort(serverSettings, _server_http_port);
+     OVMS_ServerSettingsSetLogLevel(serverSettings, OVMS_LOG_ERROR);
+
+     // // Loads models in single OVMS C-API server
+     OVMS_ModelsSettingsSetConfigPath(modelsSettings, "configs/config_object_detection.json");
+
+     if (!createModelServer(_srv, serverSettings, modelsSettings)) {
+         std::cout << "Failed to create model server\n" << std::endl;
+         return false;
+     }
+     else {
+         std::cout << "--------------------------------------------------------------" << std::endl;
+         std::cout << "Server ready for inference C-API ports " << _server_grpc_port << " " << _server_http_port << std::endl;
+         std::cout << "--------------------------------------------------------------" << std::endl;
+         _server_http_port+=1;
+         _server_grpc_port+=1;
+     }
+     return true;
+}
+
+bool getMAPipeline(std::string mediaPath, GstElement** pipeline,  GstElement** appsink, ObjectDetectionInterface** _objDet, ObjectDetectionInterface** _textDet) 
+{
+    
+    *_textDet = new TextDetection();
+    
+    if (!setActiveModel(_detectorModel, _objDet)) {
+        std::cout << "Unable to set active detection model" << std::endl;
+        return false;
+    }
+
+    return loadGStreamer(pipeline, appsink, mediaPath, *_objDet, *_textDet);
+}
+
+void run_stream(std::string mediaPath, GstElement* pipeline, GstElement* appsink, ObjectDetectionInterface* objDet, ObjectDetectionInterface* textDet)
+{
 
     auto ttid = std::this_thread::get_id();
     std::stringstream ss;
     ss << ttid;
     std::string tid = ss.str();
 
-	GMainLoop *loop;	
-    GstElement *pipeline;
-    GstElement *appsink;
-    guint bus_watch_id;
+    // Wait for all decoder streams to init...otherwise causes a segfault when OVMS loads
+    // https://stackoverflow.com/questions/48271230/using-condition-variablenotify-all-to-notify-multiple-threads
+    std::unique_lock<std::mutex> lk(_mtx);
+    _cvAllDecodersInitd.wait(lk, [] { return _allDecodersInitd;} ); 
+    lk.unlock();
 
-    pipeline = gst_parse_launch (videoPipelineText.c_str(), NULL);
-    if (pipeline == NULL) {
-        std::cout << "ERROR: Failed to parse GST pipeline. Quitting." << std::endl;
-        return;
-    }
+    printf("Starting thread: %s\n", tid.c_str()) ;
 
-    std::string appsinkName = "appsink" + std::to_string(threadCnt++);
-    appsink = gst_bin_get_by_name (GST_BIN (pipeline), appsinkName.c_str());
-
-	// Check if all elements were created
-	if (!pipeline || !appsink)
-	{
-        printf("ERROR: Failed to initialize GST pipeline. Quitting.\n");
-        return;
-	}
-
-    GMainContext *context = g_main_context_new ();
-    loop = g_main_loop_new(context, FALSE);
-
-	// Add a message handler	
-    bus_watch_id = gst_bus_add_watch(
-        GST_ELEMENT_BUS(pipeline),
-        bus_call, 
-        loop);
-
-	// Start pipeline so it could process incoming data
-	GstStateChangeReturn gst_res = gst_element_set_state(pipeline, GST_STATE_PLAYING);
-    
-    if (gst_res != GST_STATE_CHANGE_SUCCESS && gst_res != GST_STATE_CHANGE_ASYNC  ) {
-        printf("ERROR: StateChange not successful. Error Code: %d\n", gst_res);
-        return;
-    }
-    
     auto initTime = std::chrono::high_resolution_clock::now();
     unsigned long numberOfFrames = 0;
-    long long numberOfSkipFrames = 0;    
+    long long numberOfSkipFrames = 0;
     OVMS_Status* res = NULL;
-    OVMS_InferenceRequest* request{nullptr};
-    OVMS_InferenceRequestNew(&request, _srv, _objDet->getModelName(), _objDet->getModelVersion());
-    OVMS_InferenceRequestAddInput(
-            request,
-            _objDet->getModelInputName(),
-            OVMS_DATATYPE_FP32,
-            _objDet->model_input_shape,
-            _objDet->getModelDimCount()
-    );
-
+    
     while (!shutdown_request) {
         auto startTime = std::chrono::high_resolution_clock::now();        
         
@@ -1183,10 +1177,11 @@ void run_stream(std::string mediaPath) {
         uint32_t dimCount1 = 0;
         uint32_t dimCount2 = 0;
         uint32_t dimCount3 = 0;
+    
         OVMS_BufferType bufferType1 = (OVMS_BufferType)42;
         OVMS_BufferType bufferType2 = (OVMS_BufferType)42;
         OVMS_BufferType bufferType3 = (OVMS_BufferType)42;
-        uint32_t deviceId1 = streamId;
+        uint32_t deviceId1 = 42;
         uint32_t deviceId2 = 42;
         uint32_t deviceId3 = 42;
         const char* outputName1{nullptr};
@@ -1197,17 +1192,16 @@ void run_stream(std::string mediaPath) {
         GstStructure *s;
         GstBuffer *buffer;
         GstMapInfo m;
+      
         std::vector<DetectedResult> detectedResults;
         std::vector<DetectedResult> detectedResultsFiltered;        
-              
+
         if (gst_app_sink_is_eos(GST_APP_SINK(appsink))) {
             std::cout << "INFO: EOS " << std::endl;
             return;
         }
 
-        //sample = gst_app_sink_try_pull_sample (_appsink,
-        //                      GstClockTime timeout)(GST_APP_SINK(_appsink));
-        sample = gst_app_sink_pull_sample(GST_APP_SINK(appsink));
+        sample = gst_app_sink_try_pull_sample (GST_APP_SINK(appsink), 1 * GST_SECOND);
 
         if (sample == nullptr) {
             std::cout << "ERROR: No sample found" << std::endl;
@@ -1233,51 +1227,49 @@ void run_stream(std::string mediaPath) {
             std::cout << "ERROR: Invalid buffer size" << std::endl;
             return;
         }
-
+        
         // Final FP32 image for inference
         cv::Mat analytics_frame;
         cv::Mat floatImage;
         std::vector<int> inputShape;
 
-        inputShape = _objDet->getModelInputShape();
+        inputShape = objDet->getModelInputShape();
 
-        cv::Mat img;
-
-        // Inference
-    {
-        std::lock_guard<std::mutex> lock(_infMtx);
-
-        cv::Mat tmp(_video_input_height, _video_input_width, CV_8UC3, (void *) m.data);
-        img = tmp.clone();
+        cv::Mat img(_video_input_height, _video_input_width, CV_8UC3, (void *) m.data);
+        
         // Resize not needed if not rendering and no OCR is used. This is true given the frame will already be scaled
         // to the detector input shape for optimization purposes.
         if (_render || _includeOCR) {
-            resize(img, analytics_frame, cv::Size(inputShape[1], inputShape[2]), 0, 0, cv::INTER_CUBIC);
+            resize(img, analytics_frame, cv::Size(inputShape[1], inputShape[2]), 0, 0, cv::INTER_LINEAR);
             analytics_frame.convertTo(floatImage, CV_32F);
         }
         else {
             img.convertTo(floatImage, CV_32F);
         }
-
-        const int DATA_SIZE = floatImage.step[0] * floatImage.rows;
-
-        //OVMS_InferenceRequest* request{nullptr};
-        OVMS_InferenceResponse* response = nullptr;
-        //OVMS_InferenceRequestNew(&request, _srv, _objDet->getModelName(), _objDet->getModelVersion());
-
-        // OVMS_InferenceRequestAddInput(
-        //     request,
-        //     _objDet->getModelInputName(),
-        //     OVMS_DATATYPE_FP32,
-        //     _objDet->model_input_shape,
-        //     _objDet->getModelDimCount()
-        // );
         
+        const int DATA_SIZE = floatImage.step[0] * floatImage.rows;       
 
+	    OVMS_InferenceResponse* response = nullptr;
+        OVMS_InferenceRequest* request{nullptr};
+
+    // Inference        
+    {
+        std::lock_guard<std::mutex> lock(_infMtx);
+
+        OVMS_InferenceRequestNew(&request, _srv, objDet->getModelName(), objDet->getModelVersion());
+
+        OVMS_InferenceRequestAddInput(
+             request,
+             objDet->getModelInputName(),
+             OVMS_DATATYPE_FP32,
+             objDet->model_input_shape,
+             objDet->getModelDimCount()
+        );
+        
         // run sync request
         OVMS_InferenceRequestInputSetData(
             request,
-            _objDet->getModelInputName(),
+            objDet->getModelInputName(),
             reinterpret_cast<void*>(floatImage.data),
             DATA_SIZE ,
             OVMS_BUFFERTYPE_CPU,
@@ -1294,20 +1286,24 @@ void run_stream(std::string mediaPath) {
             OVMS_StatusGetDetails(res, &details);
             std::cout << "Error occured during inference. Code:" << code
                     << ", details:" << details << std::endl;
-            goto cleanup;
+            if (request)
+                OVMS_InferenceRequestDelete(request);
+            break;
         }
         else
         {
             OVMS_StatusDelete(res);
+            printf("INference successful\n");
         }
+    } // end lock on inference request to server
 
-        // read output. Yolov5s has 3 outputs...only processing one.
+        // Read output. Yolov5s has 3 outputs...only processing one.
         // TODO: process remaining        
         OVMS_InferenceResponseGetOutputCount(response, &outputCount);
         outputId = outputCount - 1;
-	    //printf("Got %d model outputs\n", outputCount);        
 
         OVMS_InferenceResponseGetOutput(response, outputId, &outputName1, &datatype1, &shape1, &dimCount1, &voutputData1, &bytesize1, &bufferType1, &deviceId1);
+
         // std::cout << "------------>" << tid << " : " << "DeviceID " << deviceId1
         //  << ", OutputName " << outputName1
         //  << ", DimCount " << dimCount1
@@ -1315,37 +1311,39 @@ void run_stream(std::string mediaPath) {
         //  << ", byteSize " << bytesize1
         //  << ", OutputCount " << outputCount << std::endl;
 
-cleanup:
-        if (request) {
-             OVMS_InferenceRequestInputRemoveData(request, outputName1); // doesn't help
-            //OVMS_InferenceRequestDelete(request);
-        }
-        if (response)
-            OVMS_InferenceResponseDelete(response);
-    }
-
         //OVMS_InferenceResponseGetOutput(response, outputId - 1, &outputName2, &datatype2, &shape2, &dimCount2, &voutputData2, &bytesize2, &bufferType2, &deviceId2);
         //std::cout << "------------> " << outputName2  << " " << dimCount2 << " " << shape2[0] << " " << shape2[1] << " " << shape2[2] << " " << shape2[3] << " " << bytesize2 << " " << outputCount << std::endl;
 
         //OVMS_InferenceResponseGetOutput(response, outputId-2, &outputName3, &datatype3, &shape3, &dimCount3, &voutputData3, &bytesize3, &bufferType3, &deviceId3);
         //std::cout << "------------> " << outputName3  << " " << dimCount3 << " " << shape3[0] << " " << shape3[1] << " " << shape3[2] << " " << shape3[3] << " " << bytesize3 << " " << outputCount << std::endl;
 
-        _objDet->postprocess(shape1, voutputData1, bytesize1, dimCount1, detectedResults);
-        _objDet->postprocess(detectedResults, detectedResultsFiltered);
-        //std::cout << "---------->ROIS: " << tid << " : " << detectedResultsFiltered.size() << std::endl;
+        objDet->postprocess(shape1, voutputData1, bytesize1, dimCount1, detectedResults);
+        objDet->postprocess(detectedResults, detectedResultsFiltered);
 
         // perform text detection as an option
         if (_includeOCR)
         {        
-            performTextDetectionInference(_srv, detectedResultsFiltered, img, _textDet);
+            performTextDetectionInference(_srv, detectedResultsFiltered, img, textDet);
         }
 
         numberOfSkipFrames++;
         float fps = 0;
-        if (numberOfSkipFrames <= 120) // skip warm up
+        if (numberOfSkipFrames <= -1) // skip warm up
         {
             initTime = std::chrono::high_resolution_clock::now();
             numberOfFrames = 1;
+
+            if (response) {
+              OVMS_InferenceResponseDelete(response);
+            }
+        
+            if (request) {
+              OVMS_InferenceRequestInputRemoveData(request, objDet->getModelInputName()); // doesn't help
+              OVMS_InferenceRequestRemoveInput(request, objDet->getModelInputName());
+              OVMS_InferenceRequestDelete(request);
+            }
+
+            //printf("Too early...Skipping frames..\n");
             continue;
         }
         else if (numberOfSkipFrames > 120)
@@ -1361,6 +1359,8 @@ cleanup:
         //printInferenceResults(detectedResultsFiltered);
         if (_render) {
             displayGUIInferenceResults(img, detectedResultsFiltered, latencyTime, fps);
+            printf("quitting %s\n", tid.c_str());
+            //return;
         }
         else
         {
@@ -1369,43 +1369,54 @@ cleanup:
         }
         //saveInferenceResultsAsVideo(img, detectedResultsFiltered);
 
-        // OVMS_InferenceRequestDelete(request);
-        // OVMS_InferenceResponseDelete(response);
+        
+        if (request) {
+           OVMS_InferenceRequestInputRemoveData(request, objDet->getModelInputName()); // doesn't help
+           OVMS_InferenceRequestRemoveInput(request, objDet->getModelInputName());
+           OVMS_InferenceRequestDelete(request);           
+        }
+        
+        if (response) {
+           OVMS_InferenceResponseDelete(response);
+        }
+        
         gst_buffer_unmap(buffer, &m);
         gst_sample_unref(sample);
 
         if (shutdown_request > 0)
             break;
-    } // end while get frames
-
-    if (request)
-        OVMS_InferenceRequestDelete(request);
+    } // end while get frames    
 
     std::cout << "Goodbye..." << std::endl;
 
+  //TODO make global  
+//    OVMS_ModelsSettingsDelete(modelsSettings);
+//    OVMS_ServerSettingsDelete(serverSettings);
+
+       
     if (res != NULL) {
         OVMS_StatusDelete(res);
         res = NULL;
     }
 
-    if (_objDet) {
-        delete _objDet;
-        _objDet = NULL;
+    if (objDet) {
+        delete objDet;
+        objDet = NULL;
     }
 
-    if (_textDet) {
-        delete _textDet;
-        _textDet = NULL;
+    if (textDet) {
+        delete textDet;
+        textDet = NULL;
     }
 
     //gst_object_unref(bus);
-    if (loop)
-        g_main_loop_unref(loop);
+//    if (loop)
+//        g_main_loop_unref(loop);
     gst_element_set_state (pipeline, GST_STATE_NULL);
     if (pipeline)
         gst_object_unref(pipeline);
-    if (context)
-        g_main_context_unref (context);
+//    if (context)
+//        g_main_context_unref (context);
 }
 
 void print_usage(const char* programName) {
@@ -1453,72 +1464,39 @@ int main(int argc, char** argv) {
 	      _server_http_port = std::stoi(argv[7]);
     }
 
-    // if (!setActiveModel(_detectorModel))
-    //     return 1;
-
-    installSignalHandlers();
-
-    OVMS_ServerSettings* serverSettings = 0;
-    OVMS_ModelsSettings* modelsSettings = 0;
-
-    OVMS_ServerSettingsNew(&serverSettings);
-    OVMS_ModelsSettingsNew(&modelsSettings);
-    OVMS_ServerNew(&_srv);
-
-    OVMS_ServerSettingsSetGrpcPort(serverSettings, _server_grpc_port);
-    OVMS_ServerSettingsSetRestPort(serverSettings, _server_http_port);
-
-    OVMS_ServerSettingsSetLogLevel(serverSettings, OVMS_LOG_ERROR);
-
-    // Loads models in single OVMS C-API server
-    OVMS_ModelsSettingsSetConfigPath(modelsSettings, "configs/config_object_detection.json");
-
-    OVMS_Status* res = OVMS_ServerStartFromConfigurationFile(_srv, serverSettings, modelsSettings);
-
-    if (res) {
-        uint32_t code = 0;
-        const char* details = nullptr;
-
-        OVMS_StatusGetCode(res, &code);
-        OVMS_StatusGetDetails(res, &details);
-        std::cerr << "error during start: code:" << code << "; details:" << details << std::endl;
-
-        OVMS_StatusDelete(res);
-
-        OVMS_ServerDelete(_srv);
-        OVMS_ModelsSettingsDelete(modelsSettings);
-        OVMS_ServerSettingsDelete(serverSettings);
-        return 1;
-    }
-
-    // if (_includeOCR) {
-    //     _textDet = new TextDetection();
-    // }
-
-    std::cout << "--------------------------------------------------------------" << std::endl;
-    std::cout << "Server ready for inference " << std::endl;
-    std::cout << "--------------------------------------------------------------" << std::endl;
-
     // fails if init fails
     gst_init(NULL, NULL);
-
-    // std::thread t(run_stream, _videoStreamPipeline);
-    // // printf("---------->1\n");
-    // std::this_thread::sleep_for(std::chrono::milliseconds(15000));
-    // std::thread t2(run_stream, _videoStreamPipeline);
-    // // printf("---------->2\n");
-    // std::this_thread::sleep_for(std::chrono::milliseconds(15000));
-    // shutdown_request = 1;
-    // std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    // return 0;
-
+    
     std::vector<std::thread> running_streams;
-    running_streams.emplace_back(run_stream, _videoStreamPipeline);
+    _allDecodersInitd = false;
+
+    // TODO: Refactor to load based on config file
+    GstElement *pipeline;
+    GstElement *appsink;
+    ObjectDetectionInterface* objDet;
+    ObjectDetectionInterface* textDet;    
+    getMAPipeline(_videoStreamPipeline, &pipeline,  &appsink, &objDet, &textDet);
+    running_streams.emplace_back(run_stream, _videoStreamPipeline, pipeline, appsink, objDet, textDet);
+    
+    GstElement *pipeline2;
+    GstElement *appsink2;
+    ObjectDetectionInterface* objDet2;
+    ObjectDetectionInterface* textDet2;
+    _videoStreamPipeline = "rtsp://127.0.0.1:8554/camera_2";    
+    getMAPipeline(_videoStreamPipeline, &pipeline2,  &appsink2, &objDet2, &textDet2);
+    running_streams.emplace_back(run_stream, _videoStreamPipeline, pipeline2, appsink2, objDet2, textDet2);
+
+    if (!loadOVMS(_srv))
+        return -1;
+
+    _allDecodersInitd = true;
+    _cvAllDecodersInitd.notify_all();;
+
 
     while (!shutdown_request) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100000));
 
-        std::cout << "Available Commands: \n"
+        std::cout << "TODO:::Available Commands: \n"
         << "  add_stream [Optional: mediaLocation is an rtsp://127.0.0.1:8554/camera_0 url or a path to an *.mp4 file]\n"
         << "  del_stream\n"
         << "  change_det <0=yolov5, 1=people-detection-retail-0013, 2=yolox-complex>\n"
@@ -1536,8 +1514,7 @@ int main(int argc, char** argv) {
             if (_user_request.length() > 10 )
                 mediaPath = _user_request.substr(11);
             //std::cout << "new stream: " << mediaPath << std::endl;
-            streamId++;
-            running_streams.emplace_back(run_stream, mediaPath);
+            //running_streams.emplace_back(run_stream, mediaPath,2);
 
             std::cout << "--------------------------------------------------------------\n";
             std::cout << "SUCESS: Added a client thread" << std::endl;
@@ -1721,8 +1698,8 @@ int main(int argc, char** argv) {
     } //end while
 
 
-    for(auto& running_stream : running_streams)
-        running_stream.join();
+//    for(auto& running_stream : running_streams)
+//        running_stream.join();
 
     // if ( _objDet != NULL) {
     //     delete _objDet;
@@ -1739,8 +1716,8 @@ int main(int argc, char** argv) {
     }
 
     OVMS_ServerDelete(_srv);
-    OVMS_ModelsSettingsDelete(modelsSettings);
-    OVMS_ServerSettingsDelete(serverSettings);
+    //OVMS_ModelsSettingsDelete(modelsSettings);
+    //OVMS_ServerSettingsDelete(serverSettings);
 
     fprintf(stdout, "main() exit\n");
     return 0;
