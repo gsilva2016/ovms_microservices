@@ -178,7 +178,7 @@ protected:
 class ObjectDetectionInterface {
 public:
     const static size_t MODEL_DIM_COUNT = 4;
-    uint64_t model_input_shape[MODEL_DIM_COUNT] = { 0 };
+    int64_t model_input_shape[MODEL_DIM_COUNT] = { 0 };
 
     virtual ~ObjectDetectionInterface() {}
     virtual const char* getModelName() = 0;
@@ -187,7 +187,7 @@ public:
     virtual const  size_t getModelDimCount() = 0;
     virtual const std::vector<int> getModelInputShape() = 0;
     virtual const std::string getClassLabelText(int classIndex) = 0;
-    virtual void postprocess(const uint64_t* output_shape, const void* voutputData, const size_t bytesize, const uint32_t dimCount, std::vector<DetectedResult> &detectedResults) = 0;
+    virtual void postprocess(const int64_t* output_shape, const void* voutputData, const size_t bytesize, const uint32_t dimCount, std::vector<DetectedResult> &detectedResults) = 0;
 
     static inline float sigmoid(float x) {
         return 1.f / (1.f + std::exp(-x));
@@ -294,7 +294,7 @@ public:
     * Reference: SSD
     * TODO: Move a shared lib.
     */
-    void postprocess(const uint64_t* output_shape, const void* voutputData, const size_t bytesize, const uint32_t dimCount, std::vector<DetectedResult> &detectedResults)
+    void postprocess(const int64_t* output_shape, const void* voutputData, const size_t bytesize, const uint32_t dimCount, std::vector<DetectedResult> &detectedResults)
     {
         if (!voutputData || !output_shape) {
             // nothing to do
@@ -394,7 +394,7 @@ public:
     }
 
     // Yolov5
-    void postprocess(const uint64_t* output_shape, const void* voutputData, const size_t bytesize, const uint32_t dimCount, std::vector<DetectedResult> &detectedResults)
+    void postprocess(const int64_t* output_shape, const void* voutputData, const size_t bytesize, const uint32_t dimCount, std::vector<DetectedResult> &detectedResults)
     {
         if (!voutputData || !output_shape) {
             // nothing to do
@@ -618,7 +618,7 @@ public:
     * Reference: https://github.com/openvinotoolkit/model_server/blob/4d4c067baec66f01b1f17795406dd01e18d8cf6a/demos/horizontal_text_detection/python/horizontal_text_detection.py
     * TODO: Move a shared lib.
     */
-    void postprocess(const uint64_t* output_shape, const void* voutputData, const size_t bytesize, const uint32_t dimCount, std::vector<DetectedResult> &detectedResults)
+    void postprocess(const int64_t* output_shape, const void* voutputData, const size_t bytesize, const uint32_t dimCount, std::vector<DetectedResult> &detectedResults)
     {
         if (!voutputData || !output_shape) {
             // nothing to do
@@ -971,8 +971,8 @@ void performTextDetectionInference(OVMS_Server* srv, std::vector<DetectedResult>
     size_t bytesize1 = 0;
     uint32_t outputId = 0; // get detections only
     OVMS_DataType datatype1 = (OVMS_DataType)42;
-    const uint64_t* shape1{nullptr};
-    uint32_t dimCount1 = 0;
+    const int64_t* shape1{nullptr};
+    size_t dimCount1 = 0;
     OVMS_BufferType bufferType1 = (OVMS_BufferType)42;
     uint32_t deviceId1 = 42;
     const char* outputName1{nullptr};
@@ -1171,12 +1171,12 @@ void run_stream(std::string mediaPath, GstElement* pipeline, GstElement* appsink
         OVMS_DataType datatype1 = (OVMS_DataType)42;
         OVMS_DataType datatype2 = (OVMS_DataType)42;
         OVMS_DataType datatype3 = (OVMS_DataType)42;
-        const uint64_t* shape1{nullptr};
-        const uint64_t* shape2(nullptr);
-        const uint64_t* shape3(nullptr);
-        uint32_t dimCount1 = 0;
-        uint32_t dimCount2 = 0;
-        uint32_t dimCount3 = 0;
+        const int64_t* shape1{nullptr};
+        const int64_t* shape2(nullptr);
+        const int64_t* shape3(nullptr);
+        size_t dimCount1 = 0;
+        size_t dimCount2 = 0;
+        size_t dimCount3 = 0;
     
         OVMS_BufferType bufferType1 = (OVMS_BufferType)42;
         OVMS_BufferType bufferType2 = (OVMS_BufferType)42;
