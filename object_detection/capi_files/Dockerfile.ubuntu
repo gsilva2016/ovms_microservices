@@ -44,7 +44,7 @@ RUN	set -e ; \
 #ARG BUILD_DEPENDENCIES="build-essential git cmake libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev libxml2 curl libpugixml1v5 libtbb2 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav libgtk2.0-dev libhdf5-serial-dev libvtk9-dev"
 
 # Install dependencies for compiling ocv4.7.0
-ARG BUILD_DEPENDENCIES="cmake build-essential git-gui meson python3 python3-pip flex bison clang libgtk2.0-dev libhdf5-serial-dev libvtk9-dev libtbb2 libxml2 curl libpugixml1v5"
+ARG BUILD_DEPENDENCIES="cmake build-essential git-gui python3 python3-pip flex bison clang libgtk2.0-dev libhdf5-serial-dev libvtk9-dev libtbb2 libxml2 curl libpugixml1v5"
 
 RUN apt -y update && \
     apt install -y ${BUILD_DEPENDENCIES} && \
@@ -55,13 +55,14 @@ RUN apt update -y; apt install -y wget curl vim gpg-agent; wget -qO - https://re
 intel-opencl-icd intel-level-zero-gpu level-zero intel-media-va-driver-non-free libmfx1 libmfxgen1 libvpl2 libegl-mesa0 libegl1-mesa libegl1-mesa-dev libgbm1 libgl1-mesa-dev libgl1-mesa-dri libglapi-mesa libgles2-mesa-dev libglx-mesa0 libigdgmm12 libxatracker2 mesa-va-drivers mesa-vdpau-drivers mesa-vulkan-drivers va-driver-all vainfo libcanberra-gtk-module
 
 # Install GST dependencies
-RUN apt -y update; DEBIAN_FRONTEND=noninteractive apt install -y libva-dev autoconf libtool libpciaccess-dev libssl-dev pkg-config libdrm-dev libgbm-dev libcogl-pango-dev libudev-dev lld libx11-xcb-dev libpciaccess-dev nasm yasm libx11-dev libxcb-present-dev libxcb-dri3-dev xorg xorg-dev libgl1-mesa-glx libgl1-mesa-dev
-RUN pip3 install meson==0.55.0
+RUN apt -y update; DEBIAN_FRONTEND=noninteractive apt install -y libva-dev autoconf libtool libpciaccess-dev libssl-dev pkg-config libdrm-dev libgbm-dev libcogl-pango-dev libudev-dev lld libx11-xcb-dev libpciaccess-dev nasm yasm libx11-dev libxcb-present-dev libxcb-dri3-dev xorg xorg-dev libgl1-mesa-glx libgl1-mesa-dev meson libgudev-1.0-dev
+#RUN pip3 install meson
 
 # Install OneVPL CPU & GPU Support
+RUN apt -y update; DEBIAN_FRONTEND=noninteractive apt install -y wget unzip
 RUN wget https://github.com/oneapi-src/oneVPL/archive/refs/tags/v2023.3.1.zip
 RUN unzip v2023.3.1.zip
-RUN cd oneVPL*; export VPL_INSTALL_DIR=`pwd`/../_vplinstall; mkdir _build; mkdir $VPL_INSTALL_DIR; cd _build; cmake .. -DCMAKE_INSTALL_PREFIX=$VPL_INSTALL_DIR; cmake --build . --config Release; cmake --build . --config Release --target install
+RUN cd oneVPL*; export VPL_INSTALL_DIR=/opt/intel/onevpl; mkdir _build; mkdir $VPL_INSTALL_DIR; cd _build; cmake .. -DCMAKE_INSTALL_PREFIX=$VPL_INSTALL_DIR; cmake --build . --config Release; cmake --build . --config Release --target install
 
 RUN wget https://github.com/oneapi-src/oneVPL-intel-gpu/archive/refs/tags/intel-onevpl-23.2.4.zip
 RUN unzip intel-onevpl-23.2.4.zip
@@ -70,7 +71,7 @@ RUN cd oneVPL-intel-gpu*; mkdir build; cd build; cmake ..; make -j`nproc`; make 
 # Build GST
 RUN git clone https://github.com/GStreamer/gst-build.git;
 RUN cd gst-build; git checkout 1.19.2;
-RUN cd gst-build; meson builddir --buildtype=release -Dvaapi=enabled -Dvaapi:=disabled: -Dbad=enabled -Dgst-plugins-bad:msdk=enabled -Dgst-plugins-good:soup=disabled -Dgst-plugin-good:ffmpeg=disabled -Dintrospection=disabled -Dgst-plugin-good:sqlite3=disabled -Dpygobject:gobject-introspection=disabled -Dgst-plugins-bad:openjpeg=disabled -Dgst-plugins-bad:tests=disabled -Dgst-plugins-bad:examples=disabled -Dtests=disabled -Dexamples=disabled -Dgst-examples=disabled;
+RUN export PKG_CONFIG_PATH=/opt/intel/mediasdk/lib/pkgconfig/:/opt/intel/onevpl/lib/pkgconfig; cd gst-build; meson builddir --buildtype=release -Dvaapi=enabled -Dbad=enabled -Dgst-plugins-bad:msdk=enabled -Dgst-plugins-bad:mfx_api=oneVPL -Dgst-plugins-good:soup=disabled -Dgst-plugin-good:ffmpeg=disabled -Dintrospection=disabled -Dgst-plugin-good:sqlite3=disabled -Dpygobject:gobject-introspection=disabled -Dgst-plugins-bad:openjpeg=disabled -Dgst-plugins-bad:tests=disabled -Dgst-plugins-bad:examples=disabled -Dtests=disabled -Dexamples=disabled -Dgst-examples=disabled;
 RUN cd gst-build; ninja -j 10 -C builddir;
 RUN cd gst-build; cd builddir; ninja install
 
